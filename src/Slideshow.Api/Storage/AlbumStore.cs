@@ -5,7 +5,7 @@ namespace Slideshow.Api.Storage;
 
 public sealed class AlbumStore
 {
-    public const int MaxSlidesPerAlbum = 75;
+    public const int MaxSlidesPerAlbum = 100;
 
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web) { WriteIndented = true };

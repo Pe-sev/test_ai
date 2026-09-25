@@ -30,6 +30,6 @@ const App = {
     } catch {
       // Tom eller icke-JSON-kropp, t.ex. IIS egen felsida.
     }
-    return `Fel ${res.status}`;
+    return `Error ${res.status}`;
   }
 };

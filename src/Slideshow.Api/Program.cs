@@ -23,12 +23,12 @@ var hashSubject = new object();
 // Läser från konsolen i stället för argument, så lösenordet inte hamnar i kommandohistoriken.
 if (args.Length > 0 && string.Equals(args[0], "hash", StringComparison.OrdinalIgnoreCase))
 {
-    Console.Write("Lösenord: ");
+    Console.Write("Password: ");
     var entered = Console.ReadLine();
 
     if (string.IsNullOrWhiteSpace(entered))
     {
-        Console.Error.WriteLine("Tomt lösenord, avbryter.");
+        Console.Error.WriteLine("Empty password, aborting.");
         return 1;
     }
 
@@ -157,7 +157,7 @@ api.MapPost("/login", async (LoginRequest body, HttpContext ctx, IConfiguration 
     if (string.IsNullOrWhiteSpace(storedHash))
     {
         return Results.Json(
-            new { error = "Ingen adminhash är konfigurerad på servern." },
+            new { error = "No admin password hash is configured on the server." },
             statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 
@@ -165,7 +165,7 @@ api.MapPost("/login", async (LoginRequest body, HttpContext ctx, IConfiguration 
 
     if (verified == PasswordVerificationResult.Failed)
     {
-        return Results.Json(new { error = "Fel lösenord." }, statusCode: StatusCodes.Status401Unauthorized);
+        return Results.Json(new { error = "Wrong password." }, statusCode: StatusCodes.Status401Unauthorized);
     }
 
     var identity = new ClaimsIdentity(
@@ -242,11 +242,11 @@ api.MapPost("/slideshows/{slug}/images", async (
     {
         return Results.BadRequest(new
         {
-            error = $"Ett bildspel rymmer högst {AlbumStore.MaxSlidesPerAlbum} bilder."
+            error = $"A slideshow holds at most {AlbumStore.MaxSlidesPerAlbum} images."
         });
     }
 
-    if (file.Length == 0) return Results.BadRequest(new { error = "Filen är tom." });
+    if (file.Length == 0) return Results.BadRequest(new { error = "The file is empty." });
 
     var storedName = $"{Guid.NewGuid():N}.jpg";
     var fullPath = Path.Combine(albums.FullDirectory(slug), storedName);

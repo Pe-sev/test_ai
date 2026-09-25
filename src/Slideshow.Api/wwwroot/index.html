@@ -1,23 +1,23 @@
 <!DOCTYPE html>
-<html lang="sv">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Bildspel</title>
+<title>Slideshows</title>
 <link rel="stylesheet" href="/site.css">
 </head>
 <body>
 
 <header class="bar">
-  <h1>Bildspel</h1>
+  <h1>Slideshows</h1>
   <span class="spacer"></span>
-  <a class="btn" href="/upload.html">Nytt bildspel</a>
+  <a class="btn" href="/upload.html">New slideshow</a>
 </header>
 
 <main>
   <ul class="cards" id="cards"></ul>
-  <p id="empty" class="muted" hidden>Inga bildspel än.</p>
+  <p id="empty" class="muted" hidden>No slideshows yet.</p>
 </main>
 
 <script src="/app.js"></script>
@@ -59,12 +59,12 @@ async function move(from, delta) {
     // Annars ligger listan kvar i en ordning som servern inte känner till.
     albums = before;
     render();
-    alert(`Kunde inte spara ordningen: ${err.message}`);
+    alert(`Could not save the order: ${err.message}`);
   }
 }
 
 async function remove(album) {
-  if (!confirm(`Radera "${album.title}" med ${album.slideCount} bilder?`)) return;
+  if (!confirm(`Delete "${album.title}" with ${album.slideCount} images?`)) return;
 
   const res = await App.send('DELETE', `/api/slideshows/${album.slug}`);
   if (!res.ok) { alert(await App.errorText(res)); return; }
@@ -95,13 +95,13 @@ function card(album, i) {
   if (album.isDraft) {
     const tag = document.createElement('span');
     tag.className = 'tag';
-    tag.textContent = 'utkast';
+    tag.textContent = 'draft';
     title.append(tag);
   }
 
   const count = document.createElement('span');
-  const date = new Date(album.createdUtc).toLocaleDateString('sv-SE');
-  count.textContent = `${album.slideCount} bilder · ${date}`;
+  const date = new Date(album.createdUtc).toLocaleDateString('en-GB');
+  count.textContent = `${album.slideCount} images · ${date}`;
 
   meta.append(title, count);
   link.append(img, meta);
@@ -111,13 +111,13 @@ function card(album, i) {
     const actions = document.createElement('div');
     actions.className = 'actions';
 
-    const up = moveButton('prev', 'Flytta tidigare i listan', () => move(i, -1));
+    const up = moveButton('prev', 'Move earlier in the list', () => move(i, -1));
     up.disabled = i === 0;
 
-    const down = moveButton('next', 'Flytta senare i listan', () => move(i, 1));
+    const down = moveButton('next', 'Move later in the list', () => move(i, 1));
     down.disabled = i === albums.length - 1;
 
-    actions.append(up, down, actionButton('✕', 'Radera bildspelet', () => remove(album)));
+    actions.append(up, down, actionButton('✕', 'Delete the slideshow', () => remove(album)));
     item.append(actions);
   }
 

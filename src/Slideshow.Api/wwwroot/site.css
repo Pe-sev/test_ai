@@ -218,7 +218,7 @@ body.viewer .bar { grid-area: bar; background: #0a0a0a; }
 .stage figcaption[contenteditable="true"]:empty { padding: 1.5rem 1rem .9rem; }
 
 .stage figcaption[contenteditable="true"]:empty::before {
-  content: "Lägg till bildtext";
+  content: "Add a caption";
   opacity: .45;
   font-size: .85rem;
 }

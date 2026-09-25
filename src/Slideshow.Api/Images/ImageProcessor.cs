@@ -28,13 +28,13 @@ public static class ImageProcessor
         }
         catch (UnknownImageFormatException)
         {
-            throw new ImageRejectedException("Filen är inte en bild som kan läsas.");
+            throw new ImageRejectedException("The file is not a readable image.");
         }
 
         if ((long)info.Width * info.Height > MaxPixels)
         {
             throw new ImageRejectedException(
-                $"Bilden är {info.Width}×{info.Height} pixlar, vilket överskrider gränsen.");
+                $"The image is {info.Width}×{info.Height} pixels, which exceeds the limit.");
         }
 
         source.Position = 0;

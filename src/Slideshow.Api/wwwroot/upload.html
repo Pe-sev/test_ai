@@ -1,39 +1,39 @@
 <!DOCTYPE html>
-<html lang="sv">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Nytt bildspel</title>
+<title>New slideshow</title>
 <link rel="stylesheet" href="/site.css">
 </head>
 <body>
 
 <header class="bar">
-  <a class="btn" href="/">&larr; Alla</a>
-  <h1>Nytt bildspel</h1>
+  <a class="btn" href="/">&larr; All</a>
+  <h1>New slideshow</h1>
   <span class="spacer"></span>
-  <button id="logout" hidden>Logga ut</button>
+  <button id="logout" hidden>Sign out</button>
 </header>
 
 <main>
 
   <section id="loginView" hidden>
-    <label for="password">Lösenord</label>
+    <label for="password">Password</label>
     <input type="password" id="password" autocomplete="current-password">
-    <p><button class="primary" id="login">Logga in</button></p>
+    <p><button class="primary" id="login">Sign in</button></p>
     <p class="error" id="loginError"></p>
   </section>
 
   <section id="uploadView" hidden>
-    <label for="title">Titel</label>
-    <input type="text" id="title" placeholder="Skottland 2026" autocomplete="off">
+    <label for="title">Title</label>
+    <input type="text" id="title" placeholder="Scotland 2026" autocomplete="off">
 
-    <label for="files">Bilder</label>
+    <label for="files">Images</label>
     <input type="file" id="files" accept="image/*" multiple>
-    <p class="muted" id="hint">Högst 75 bilder. Sorteras på filnamn.</p>
+    <p class="muted" id="hint">Up to 100 images. Sorted by file name.</p>
 
-    <p><button class="primary" id="start" disabled>Ladda upp</button></p>
+    <p><button class="primary" id="start" disabled>Upload</button></p>
 
     <div id="progress"></div>
     <p class="error" id="uploadError"></p>
@@ -46,7 +46,7 @@
 <script>
 const MAX_EDGE = 2560;
 const MAX_BYTES = 10 * 1024 * 1024;
-const MAX_FILES = 75;
+const MAX_FILES = 100;
 
 const el = {
   loginView: document.getElementById('loginView'),
@@ -102,7 +102,7 @@ function loadViaImgElement(file) {
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('kan inte läsas')); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('cannot be read')); };
     img.src = url;
   });
 }
@@ -117,7 +117,7 @@ function addRow(name) {
 
   const state = document.createElement('span');
   state.className = 'state';
-  state.textContent = 'väntar';
+  state.textContent = 'waiting';
 
   row.append(label, state);
   el.progress.append(row);
@@ -128,8 +128,8 @@ el.files.addEventListener('change', () => {
   const count = el.files.files.length;
   el.start.disabled = count === 0;
   el.hint.textContent = count > MAX_FILES
-    ? `${count} valda — bara de första ${MAX_FILES} laddas upp.`
-    : `${count} bilder valda. Sorteras på filnamn.`;
+    ? `${count} selected — only the first ${MAX_FILES} will be uploaded.`
+    : `${count} images selected. Sorted by file name.`;
 });
 
 el.login.addEventListener('click', async () => {
@@ -157,7 +157,7 @@ el.logout.addEventListener('click', async () => {
 
 el.start.addEventListener('click', async () => {
   const files = [...el.files.files]
-    .sort((a, b) => a.name.localeCompare(b.name, 'sv', { numeric: true }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }))
     .slice(0, MAX_FILES);
 
   if (files.length === 0) return;
@@ -178,17 +178,17 @@ el.start.addEventListener('click', async () => {
   const album = await created.json();
   let failures = 0;
 
-  // En fil per request: 75 bilder i en enda request skulle spränga 10 MB-gränsen.
+  // En fil per request: 100 bilder i en enda request skulle spränga 10 MB-gränsen.
   for (const file of files) {
     const ui = addRow(file.name);
-    ui.state.textContent = 'förbereder';
+    ui.state.textContent = 'preparing';
 
     try {
       let payload = await toJpeg(file);
       // Går konverteringen inte att genomföra får servern avgöra om originalet duger.
       if (!payload) payload = file;
 
-      ui.state.textContent = 'laddar upp';
+      ui.state.textContent = 'uploading';
 
       const form = new FormData();
       form.append('file', payload, file.name);
@@ -197,7 +197,7 @@ el.start.addEventListener('click', async () => {
 
       if (res.ok) {
         ui.row.classList.add('done');
-        ui.state.textContent = 'klar';
+        ui.state.textContent = 'done';
       } else {
         failures++;
         ui.row.classList.add('failed');
@@ -206,20 +206,20 @@ el.start.addEventListener('click', async () => {
     } catch (err) {
       failures++;
       ui.row.classList.add('failed');
-      ui.state.textContent = err.message || 'misslyckades';
+      ui.state.textContent = err.message || 'failed';
     }
   }
 
   if (failures < files.length) {
     await App.send('POST', `/api/slideshows/${album.slug}/publish`);
     el.done.hidden = false;
-    el.done.replaceChildren('Klart. ');
+    el.done.replaceChildren('Done. ');
     const link = document.createElement('a');
     link.href = `/s/${album.slug}`;
-    link.textContent = 'Öppna bildspelet';
+    link.textContent = 'Open the slideshow';
     el.done.append(link);
   } else {
-    el.uploadError.textContent = 'Ingen bild kunde laddas upp. Bildspelet ligger kvar som utkast.';
+    el.uploadError.textContent = 'No image could be uploaded. The slideshow remains a draft.';
   }
 
   el.start.disabled = false;
