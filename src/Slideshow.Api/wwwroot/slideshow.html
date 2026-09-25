@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Bildspel</title>
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+
+<header class="bar">
+  <a class="btn" href="/">&larr; Alla</a>
+  <h1 id="title">&hellip;</h1>
+  <button id="toggleView">Översikt</button>
+  <button id="play">Spela</button>
+  <button id="full">Helskärm</button>
+</header>
+
+<section id="stage" class="stage">
+  <button class="nav prev" id="prev" aria-label="Föregående">&lsaquo;</button>
+  <figure>
+    <img id="photo" alt="">
+    <figcaption id="caption"></figcaption>
+  </figure>
+  <button class="nav next" id="next" aria-label="Nästa">&rsaquo;</button>
+  <div class="counter" id="counter"></div>
+</section>
+
+<section id="grid" class="grid" hidden></section>
+
+<main id="message" hidden></main>
+
+<script src="/app.js"></script>
+<script>
+const slug = decodeURIComponent(location.pathname.replace(/^\/s\//, '').replace(/\/$/, ''));
+
+const el = {
+  title: document.getElementById('title'),
+  stage: document.getElementById('stage'),
+  grid: document.getElementById('grid'),
+  photo: document.getElementById('photo'),
+  caption: document.getElementById('caption'),
+  counter: document.getElementById('counter'),
+  message: document.getElementById('message'),
+  toggleView: document.getElementById('toggleView'),
+  play: document.getElementById('play'),
+  full: document.getElementById('full')
+};
+
+let slides = [];
+let index = 0;
+let timer = null;
+
+function indexFromHash() {
+  const n = parseInt(location.hash.slice(1), 10);
+  return Number.isFinite(n) ? Math.min(Math.max(n - 1, 0), slides.length - 1) : 0;
+}
+
+function show(i, push = true) {
+  if (slides.length === 0) return;
+
+  index = (i + slides.length) % slides.length;
+  const slide = slides[index];
+
+  el.photo.src = slide.full;
+  el.photo.alt = slide.caption || '';
+  // textContent, aldrig innerHTML: bildtexten är användarinmatad.
+  el.caption.textContent = slide.caption || '';
+  el.counter.textContent = `${index + 1} / ${slides.length}`;
+
+  const hash = '#' + (index + 1);
+  if (push && location.hash !== hash) {
+    history.pushState(null, '', hash);
+  } else if (!push) {
+    history.replaceState(null, '', hash);
+  }
+
+  preload(index + 1);
+  preload(index - 1);
+  highlightThumb();
+}
+
+function preload(i) {
+  if (slides.length === 0) return;
+  const slide = slides[(i + slides.length) % slides.length];
+  new Image().src = slide.full;
+}
+
+function highlightThumb() {
+  [...el.grid.querySelectorAll('img')].forEach((img, i) =>
+    img.classList.toggle('active', i === index));
+}
+
+function stopPlayback() {
+  if (timer === null) return;
+  clearInterval(timer);
+  timer = null;
+  el.play.textContent = 'Spela';
+}
+
+function togglePlayback() {
+  if (timer !== null) { stopPlayback(); return; }
+  // replaceState under uppspelning, annars fylls historiken med ett steg per bild.
+  timer = setInterval(() => show(index + 1, false), 5000);
+  el.play.textContent = 'Pausa';
+}
+
+function showGrid(on) {
+  el.grid.hidden = !on;
+  el.stage.hidden = on;
+  el.toggleView.textContent = on ? 'Visa bild' : 'Översikt';
+  if (on) stopPlayback();
+}
+
+function buildGrid() {
+  el.grid.replaceChildren(...slides.map((slide, i) => {
+    const img = new Image();
+    img.src = slide.thumb;
+    img.alt = slide.caption || '';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.addEventListener('click', () => { showGrid(false); show(i); });
+    return img;
+  }));
+}
+
+function enableCaptionEditing() {
+  el.caption.contentEditable = 'true';
+  el.caption.title = 'Klicka för att skriva bildtext';
+
+  el.caption.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); el.caption.blur(); }
+    if (e.key === 'Escape') { el.caption.textContent = slides[index].caption || ''; el.caption.blur(); }
+    e.stopPropagation();
+  });
+
+  el.caption.addEventListener('blur', async () => {
+    const text = el.caption.textContent.trim();
+    if (text === (slides[index].caption || '')) return;
+
+    const slide = slides[index];
+    const res = await App.send('PUT', `/api/slideshows/${encodeURIComponent(slug)}/slides/${slide.id}/caption`,
+      { caption: text });
+
+    if (res.ok) {
+      slide.caption = (await res.json()).caption;
+      el.caption.textContent = slide.caption;
+      el.photo.alt = slide.caption;
+    } else {
+      el.caption.textContent = slide.caption || '';
+      alert(await App.errorText(res));
+    }
+  });
+}
+
+document.getElementById('prev').addEventListener('click', () => { stopPlayback(); show(index - 1); });
+document.getElementById('next').addEventListener('click', () => { stopPlayback(); show(index + 1); });
+el.toggleView.addEventListener('click', () => showGrid(el.grid.hidden));
+el.play.addEventListener('click', togglePlayback);
+
+el.full.addEventListener('click', () => {
+  const on = !document.body.classList.contains('fs');
+  document.body.classList.toggle('fs', on);
+  el.full.textContent = on ? 'Avsluta' : 'Helskärm';
+
+  // Äkta helskärm där den finns. iPhone saknar den för vanliga element, därför CSS-läget ovan.
+  if (on) document.documentElement.requestFullscreen?.().catch(() => {});
+  else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+});
+
+document.addEventListener('keydown', e => {
+  if (e.target.isContentEditable) return;
+  if (e.key === 'ArrowRight') { stopPlayback(); show(index + 1); }
+  if (e.key === 'ArrowLeft') { stopPlayback(); show(index - 1); }
+  if (e.key === ' ') { e.preventDefault(); togglePlayback(); }
+  if (e.key === 'Escape' && document.body.classList.contains('fs')) el.full.click();
+});
+
+let touchX = null;
+el.stage.addEventListener('touchstart', e => { touchX = e.changedTouches[0].clientX; }, { passive: true });
+el.stage.addEventListener('touchend', e => {
+  if (touchX === null) return;
+  const dx = e.changedTouches[0].clientX - touchX;
+  touchX = null;
+  if (Math.abs(dx) < 40) return;
+  stopPlayback();
+  show(dx < 0 ? index + 1 : index - 1);
+}, { passive: true });
+
+window.addEventListener('popstate', () => show(indexFromHash(), false));
+
+(async function start() {
+  await App.loadSession();
+
+  const res = await fetch(`/api/slideshows/${encodeURIComponent(slug)}`, { cache: 'no-store' });
+
+  if (!res.ok) {
+    el.stage.hidden = true;
+    el.message.hidden = false;
+    el.message.textContent = 'Bildspelet finns inte.';
+    return;
+  }
+
+  const album = await res.json();
+  slides = album.slides;
+  el.title.textContent = album.title + (album.isDraft ? ' (utkast)' : '');
+  document.title = album.title;
+
+  if (slides.length === 0) {
+    el.stage.hidden = true;
+    el.message.hidden = false;
+    el.message.textContent = 'Bildspelet är tomt.';
+    return;
+  }
+
+  buildGrid();
+  if (App.isAdmin) enableCaptionEditing();
+  show(indexFromHash(), false);
+})();
+</script>
+</body>
+</html>

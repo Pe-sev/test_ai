@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Slideshow.Api</RootNamespace>
+
+    <!-- Server GC ger en heap per kärna. På delad hosting i en 32-bitars adressrymd
+         kostar det minne och starttid utan att ge något tillbaka. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <!-- Runtime-data: får varken byggas in eller skrivas över vid deploy. -->
+  <ItemGroup>
+    <Content Remove="App_Data\**" />
+    <None Remove="App_Data\**" />
+    <Compile Remove="App_Data\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 3.1.x, inte 4.x: v4 kräver en licensnyckel vid bygget. Under 3.x delade
+         licens gäller Apache 2.0 för bolag under 1 MUSD i omsättning. -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+  </ItemGroup>
+
+</Project>

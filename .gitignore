@@ -1,0 +1,29 @@
+## Build output
+bin/
+obj/
+publish/
+
+## Runtime data - never committed, never deployed over
+App_Data/
+
+## Node
+node_modules/
+dist/
+
+## Frontend build output copied into the API
+src/Slideshow.Api/wwwroot/assets/
+
+## IDE
+.vs/
+.idea/
+*.user
+*.suo
+
+## Deploy
+deploy/*.local.ps1
+deploy/secrets*
+app_offline.htm
+
+## OS
+Thumbs.db
+.DS_Store

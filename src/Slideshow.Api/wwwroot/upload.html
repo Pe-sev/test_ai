@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Nytt bildspel</title>
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+
+<header class="bar">
+  <a class="btn" href="/">&larr; Alla</a>
+  <h1>Nytt bildspel</h1>
+  <span class="spacer"></span>
+  <button id="logout" hidden>Logga ut</button>
+</header>
+
+<main>
+
+  <section id="loginView" hidden>
+    <label for="password">Lösenord</label>
+    <input type="password" id="password" autocomplete="current-password">
+    <p><button class="primary" id="login">Logga in</button></p>
+    <p class="error" id="loginError"></p>
+  </section>
+
+  <section id="uploadView" hidden>
+    <label for="title">Titel</label>
+    <input type="text" id="title" placeholder="Skottland 2026" autocomplete="off">
+
+    <label for="files">Bilder</label>
+    <input type="file" id="files" accept="image/*" multiple>
+    <p class="muted" id="hint">Högst 75 bilder. Sorteras på filnamn.</p>
+
+    <p><button class="primary" id="start" disabled>Ladda upp</button></p>
+
+    <div id="progress"></div>
+    <p class="error" id="uploadError"></p>
+    <p id="done" hidden></p>
+  </section>
+
+</main>
+
+<script src="/app.js"></script>
+<script>
+const MAX_EDGE = 2560;
+const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_FILES = 75;
+
+const el = {
+  loginView: document.getElementById('loginView'),
+  uploadView: document.getElementById('uploadView'),
+  password: document.getElementById('password'),
+  login: document.getElementById('login'),
+  loginError: document.getElementById('loginError'),
+  logout: document.getElementById('logout'),
+  title: document.getElementById('title'),
+  files: document.getElementById('files'),
+  start: document.getElementById('start'),
+  progress: document.getElementById('progress'),
+  uploadError: document.getElementById('uploadError'),
+  done: document.getElementById('done'),
+  hint: document.getElementById('hint')
+};
+
+function showView(isAdmin) {
+  el.loginView.hidden = isAdmin;
+  el.uploadView.hidden = !isAdmin;
+  el.logout.hidden = !isAdmin;
+}
+
+// Safari kan avkoda HEIC men ImageSharp kan inte. Därför konverteras bilden här.
+// Nedskalningen gör dessutom att 10 MB-gränsen nästan aldrig slår till.
+async function toJpeg(file) {
+  let source;
+
+  try {
+    source = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    source = await loadViaImgElement(file);
+  }
+
+  const scale = Math.min(1, MAX_EDGE / Math.max(source.width, source.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(source.width * scale);
+  canvas.height = Math.round(source.height * scale);
+  canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+  source.close?.();
+
+  let blob = await encode(canvas, 0.85);
+  if (blob && blob.size > MAX_BYTES) blob = await encode(canvas, 0.7);
+  return blob;
+}
+
+function encode(canvas, quality) {
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+}
+
+function loadViaImgElement(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('kan inte läsas')); };
+    img.src = url;
+  });
+}
+
+function addRow(name) {
+  const row = document.createElement('div');
+  row.className = 'upload-row';
+
+  const label = document.createElement('span');
+  label.className = 'name';
+  label.textContent = name;
+
+  const state = document.createElement('span');
+  state.className = 'state';
+  state.textContent = 'väntar';
+
+  row.append(label, state);
+  el.progress.append(row);
+  return { row, state };
+}
+
+el.files.addEventListener('change', () => {
+  const count = el.files.files.length;
+  el.start.disabled = count === 0;
+  el.hint.textContent = count > MAX_FILES
+    ? `${count} valda — bara de första ${MAX_FILES} laddas upp.`
+    : `${count} bilder valda. Sorteras på filnamn.`;
+});
+
+el.login.addEventListener('click', async () => {
+  el.loginError.textContent = '';
+
+  const res = await App.send('POST', '/api/login', { password: el.password.value });
+
+  if (!res.ok) {
+    el.loginError.textContent = await App.errorText(res);
+    return;
+  }
+
+  el.password.value = '';
+  await App.loadSession();
+  showView(true);
+});
+
+el.password.addEventListener('keydown', e => { if (e.key === 'Enter') el.login.click(); });
+
+el.logout.addEventListener('click', async () => {
+  await App.send('POST', '/api/logout');
+  await App.loadSession();
+  showView(false);
+});
+
+el.start.addEventListener('click', async () => {
+  const files = [...el.files.files]
+    .sort((a, b) => a.name.localeCompare(b.name, 'sv', { numeric: true }))
+    .slice(0, MAX_FILES);
+
+  if (files.length === 0) return;
+
+  el.start.disabled = true;
+  el.uploadError.textContent = '';
+  el.done.hidden = true;
+  el.progress.replaceChildren();
+
+  const created = await App.send('POST', '/api/slideshows', { title: el.title.value });
+
+  if (!created.ok) {
+    el.uploadError.textContent = await App.errorText(created);
+    el.start.disabled = false;
+    return;
+  }
+
+  const album = await created.json();
+  let failures = 0;
+
+  // En fil per request: 75 bilder i en enda request skulle spränga 10 MB-gränsen.
+  for (const file of files) {
+    const ui = addRow(file.name);
+    ui.state.textContent = 'förbereder';
+
+    try {
+      let payload = await toJpeg(file);
+      // Går konverteringen inte att genomföra får servern avgöra om originalet duger.
+      if (!payload) payload = file;
+
+      ui.state.textContent = 'laddar upp';
+
+      const form = new FormData();
+      form.append('file', payload, file.name);
+
+      const res = await App.send('POST', `/api/slideshows/${album.slug}/images`, form);
+
+      if (res.ok) {
+        ui.row.classList.add('done');
+        ui.state.textContent = 'klar';
+      } else {
+        failures++;
+        ui.row.classList.add('failed');
+        ui.state.textContent = await App.errorText(res);
+      }
+    } catch (err) {
+      failures++;
+      ui.row.classList.add('failed');
+      ui.state.textContent = err.message || 'misslyckades';
+    }
+  }
+
+  if (failures < files.length) {
+    await App.send('POST', `/api/slideshows/${album.slug}/publish`);
+    el.done.hidden = false;
+    el.done.replaceChildren('Klart. ');
+    const link = document.createElement('a');
+    link.href = `/s/${album.slug}`;
+    link.textContent = 'Öppna bildspelet';
+    el.done.append(link);
+  } else {
+    el.uploadError.textContent = 'Ingen bild kunde laddas upp. Bildspelet ligger kvar som utkast.';
+  }
+
+  el.start.disabled = false;
+});
+
+(async function start() {
+  await App.loadSession();
+  showView(App.isAdmin);
+})();
+</script>
+</body>
+</html>
