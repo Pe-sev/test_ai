@@ -1,12 +1,14 @@
 const App = {
   token: null,
   isAdmin: false,
+  level: 0,
 
   async loadSession() {
     const res = await fetch('/api/session', { cache: 'no-store' });
     const data = await res.json();
     this.token = data.token;
     this.isAdmin = data.isAdmin;
+    this.level = data.level;
     return data;
   },
 

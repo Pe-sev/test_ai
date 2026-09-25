@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Antiforgery;
@@ -15,6 +16,12 @@ using Slideshow.Api.Storage;
 
 const long MaxUploadBytes = 10L * 1024 * 1024;
 const int MaxCaptionLength = 300;
+
+// Besökarens nivå: 0 utloggad, 1 Extended, 2 Family, 3 admin. Ett bildspel syns
+// för den som har minst albumets egen nivå, och bara admin får ändra något.
+const string AccessClaim = "access";
+const int AdminLevel = 3;
+const string MediaAccessItem = "mediaAccess";
 
 var passwordHasher = new PasswordHasher<object>();
 var hashSubject = new object();
@@ -95,7 +102,9 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+    options.AddPolicy("admin", policy =>
+        policy.RequireClaim(AccessClaim, AdminLevel.ToString(CultureInfo.InvariantCulture))));
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -123,19 +132,37 @@ app.Use(async (ctx, next) =>
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseAntiforgery();
+
+// Vakten läser ctx.User och måste därför ligga efter UseAuthentication. Utan den
+// vore låsta bildspel bara dolda i gränssnittet — slugen går att gissa ur titeln.
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.Path.StartsWithSegments("/media", out var rest) && !await MediaAllowed(rest, ctx, store))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    await next();
+});
+
 // Bilderna ligger utanför wwwroot. Filnamnen är GUID:er, därför immutable cache.
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(store.MediaRoot),
     RequestPath = "/media",
     OnPrepareResponse = ctx =>
-        ctx.Context.Response.Headers.CacheControl = "public, max-age=31536000, immutable"
+    {
+        var access = ctx.Context.Items[MediaAccessItem] as AlbumAccess? ?? AlbumAccess.Public;
+        // Låsta bildspel får bara ligga i besökarens egen cache, aldrig i en delad.
+        var scope = access == AlbumAccess.Public ? "public" : "private";
+        ctx.Context.Response.Headers.CacheControl = $"{scope}, max-age=31536000, immutable";
+    }
 });
-
-app.UseRateLimiter();
-app.UseAuthentication();
-app.UseAuthorization();
-app.UseAntiforgery();
 
 var api = app.MapGroup("/api");
 
@@ -145,31 +172,58 @@ api.MapGet("/session", (HttpContext ctx, IAntiforgery antiforgery) =>
     return Results.Ok(new
     {
         isAdmin = IsAdmin(ctx),
+        level = LevelOf(ctx),
         token = tokens.RequestToken
     });
 });
 
 api.MapPost("/login", async (LoginRequest body, HttpContext ctx, IConfiguration config) =>
 {
-    var storedHash = config["Slideshow:AdminPasswordHash"];
+    // Högsta nivån först, så att samma lösenord på två nivåer ger den högre.
+    (string Key, int Level)[] candidates =
+    [
+        ("Slideshow:AdminPasswordHash", AdminLevel),
+        ("Slideshow:FamilyPasswordHash", (int)AlbumAccess.Family),
+        ("Slideshow:ExtendedPasswordHash", (int)AlbumAccess.Extended)
+    ];
+
+    var password = body.Password ?? string.Empty;
+    var granted = 0;
+    var anyConfigured = false;
+
+    foreach (var (key, level) in candidates)
+    {
+        var storedHash = config[key];
+        if (string.IsNullOrWhiteSpace(storedHash)) continue;
+
+        anyConfigured = true;
+
+        if (passwordHasher.VerifyHashedPassword(hashSubject, storedHash, password) != PasswordVerificationResult.Failed)
+        {
+            granted = level;
+            break;
+        }
+    }
 
     // Hellre neka inloggning än att ta ner hela den publika siten på en saknad hash.
-    if (string.IsNullOrWhiteSpace(storedHash))
+    if (!anyConfigured)
     {
         return Results.Json(
-            new { error = "No admin password hash is configured on the server." },
+            new { error = "No password hash is configured on the server." },
             statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 
-    var verified = passwordHasher.VerifyHashedPassword(hashSubject, storedHash, body.Password ?? string.Empty);
-
-    if (verified == PasswordVerificationResult.Failed)
+    // Samma svar oavsett nivå: annars går det att kartlägga vilka lösenord som finns.
+    if (granted == 0)
     {
         return Results.Json(new { error = "Wrong password." }, statusCode: StatusCodes.Status401Unauthorized);
     }
 
     var identity = new ClaimsIdentity(
-        [new Claim(ClaimTypes.Name, "admin")],
+        [
+            new Claim(ClaimTypes.Name, granted == AdminLevel ? "admin" : $"level{granted}"),
+            new Claim(AccessClaim, granted.ToString(CultureInfo.InvariantCulture))
+        ],
         CookieAuthenticationDefaults.AuthenticationScheme);
 
     await ctx.SignInAsync(
@@ -177,7 +231,7 @@ api.MapPost("/login", async (LoginRequest body, HttpContext ctx, IConfiguration 
         new ClaimsPrincipal(identity),
         new AuthenticationProperties { IsPersistent = true });
 
-    return Results.Ok(new { isAdmin = true });
+    return Results.Ok(new { isAdmin = granted == AdminLevel, level = granted });
 }).RequireRateLimiting("login");
 
 api.MapPost("/logout", async (HttpContext ctx) =>
@@ -189,13 +243,17 @@ api.MapPost("/logout", async (HttpContext ctx) =>
 api.MapGet("/slideshows", async (HttpContext ctx, AlbumStore albums, CancellationToken ct) =>
 {
     var list = await albums.ListAsync(IsAdmin(ctx), ct);
+    var level = LevelOf(ctx);
 
+    // Titel och omslag visas även för låsta bildspel. Själva bilderna gör det inte.
     return Results.Ok(list.Select(a => new
     {
         a.Slug,
         a.Title,
         a.CreatedUtc,
         isDraft = a.PublishedUtc is null,
+        access = (int)a.Access,
+        locked = level < (int)a.Access,
         slideCount = a.Slides.Count,
         cover = a.Slides.Count > 0 ? $"/media/{a.Slug}/thumb/{a.Slides[0].StoredName}" : null
     }));
@@ -208,12 +266,21 @@ api.MapGet("/slideshows/{slug}", async (string slug, HttpContext ctx, AlbumStore
 
     if (album.PublishedUtc is null && !IsAdmin(ctx)) return Results.NotFound();
 
+    if (LevelOf(ctx) < (int)album.Access)
+    {
+        // Titeln syns redan på startsidan, så den kan följas med. Inga bild-URL:er.
+        return Results.Json(
+            new { locked = true, access = (int)album.Access, album.Title },
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
     return Results.Ok(new
     {
         album.Slug,
         album.Title,
         album.CreatedUtc,
         isDraft = album.PublishedUtc is null,
+        access = (int)album.Access,
         slides = album.Slides.Select(s => new
         {
             s.Id,
@@ -228,9 +295,12 @@ api.MapGet("/slideshows/{slug}", async (string slug, HttpContext ctx, AlbumStore
 
 api.MapPost("/slideshows", async (CreateRequest body, AlbumStore albums, CancellationToken ct) =>
 {
-    var album = await albums.CreateAsync(body.Title, ct);
-    return Results.Ok(new { album.Slug, album.Title });
-}).RequireAuthorization();
+    var access = body.Access ?? AlbumAccess.Public;
+    if (!Enum.IsDefined(access)) return Results.BadRequest(new { error = "Unknown access level." });
+
+    var album = await albums.CreateAsync(body.Title, access, ct);
+    return Results.Ok(new { album.Slug, album.Title, access = (int)album.Access });
+}).RequireAuthorization("admin");
 
 api.MapPost("/slideshows/{slug}/images", async (
     string slug, IFormFile file, AlbumStore albums, CancellationToken ct) =>
@@ -278,7 +348,7 @@ api.MapPost("/slideshows/{slug}/images", async (
         Discard(fullPath, thumbPath);
         return Results.BadRequest(new { error = ex.Message });
     }
-}).RequireAuthorization();
+}).RequireAuthorization("admin");
 
 api.MapPost("/slideshows/{slug}/publish", async (string slug, AlbumStore albums, CancellationToken ct) =>
 {
@@ -289,13 +359,30 @@ api.MapPost("/slideshows/{slug}/publish", async (string slug, AlbumStore albums,
     await albums.SaveAsync(album, ct);
 
     return Results.Ok(new { album.Slug, slideCount = album.Slides.Count });
-}).RequireAuthorization();
+}).RequireAuthorization("admin");
+
+api.MapPut("/slideshows/{slug}/access", async (
+    string slug, AccessRequest body, AlbumStore albums, CancellationToken ct) =>
+{
+    if (body.Access is not { } access || !Enum.IsDefined(access))
+    {
+        return Results.BadRequest(new { error = "Unknown access level." });
+    }
+
+    var album = await albums.GetAsync(slug, ct);
+    if (album is null) return Results.NotFound();
+
+    album.Access = access;
+    await albums.SaveAsync(album, ct);
+
+    return Results.Ok(new { access = (int)album.Access });
+}).RequireAuthorization("admin");
 
 api.MapPut("/slideshows/order", async (OrderRequest body, AlbumStore albums, CancellationToken ct) =>
 {
     await albums.SetOrderAsync(body.Slugs ?? [], ct);
     return Results.Ok();
-}).RequireAuthorization();
+}).RequireAuthorization("admin");
 
 api.MapPut("/slideshows/{slug}/slides/{id}/caption", async (
     string slug, string id, CaptionRequest body, AlbumStore albums, CancellationToken ct) =>
@@ -312,13 +399,13 @@ api.MapPut("/slideshows/{slug}/slides/{id}/caption", async (
     await albums.SaveAsync(album, ct);
 
     return Results.Ok(new { slide.Caption });
-}).RequireAuthorization();
+}).RequireAuthorization("admin");
 
 api.MapDelete("/slideshows/{slug}", (string slug, AlbumStore albums) =>
 {
     albums.Delete(slug);
     return Results.Ok();
-}).RequireAuthorization();
+}).RequireAuthorization("admin");
 
 app.MapGet("/s/{slug}", () =>
     Results.File(Path.Combine(app.Environment.WebRootPath, "slideshow.html"), "text/html"));
@@ -326,7 +413,29 @@ app.MapGet("/s/{slug}", () =>
 app.Run();
 return 0;
 
-static bool IsAdmin(HttpContext ctx) => ctx.User.Identity?.IsAuthenticated == true;
+static int LevelOf(HttpContext ctx) =>
+    int.TryParse(ctx.User.FindFirstValue(AccessClaim), CultureInfo.InvariantCulture, out var level) ? level : 0;
+
+static bool IsAdmin(HttpContext ctx) => LevelOf(ctx) >= AdminLevel;
+
+static async Task<bool> MediaAllowed(PathString rest, HttpContext ctx, AlbumStore albums)
+{
+    var parts = rest.Value?.Split('/', StringSplitOptions.RemoveEmptyEntries);
+    if (parts is not { Length: 3 }) return false;
+
+    var gate = await albums.GetGateAsync(parts[0], ctx.RequestAborted);
+    if (gate is null) return false;
+
+    if (!gate.IsPublished && !IsAdmin(ctx)) return false;
+
+    ctx.Items[MediaAccessItem] = gate.Access;
+
+    if (LevelOf(ctx) >= (int)gate.Access) return true;
+
+    // Omslaget ska synas i listan även för låsta bildspel. Bara den ena tumnageln —
+    // hela thumb-katalogen skulle läcka innehållet.
+    return parts[1] == "thumb" && parts[2] == gate.CoverStoredName;
+}
 
 static void Discard(params string[] paths)
 {
@@ -343,6 +452,7 @@ static void Discard(params string[] paths)
 }
 
 internal record LoginRequest(string? Password);
-internal record CreateRequest(string? Title);
+internal record CreateRequest(string? Title, AlbumAccess? Access);
 internal record CaptionRequest(string? Caption);
+internal record AccessRequest(AlbumAccess? Access);
 internal record OrderRequest(string[]? Slugs);

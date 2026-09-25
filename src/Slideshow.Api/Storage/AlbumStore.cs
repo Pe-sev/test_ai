@@ -1,16 +1,28 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Slideshow.Api.Models;
 
 namespace Slideshow.Api.Storage;
 
+// Det som behövs för att släppa igenom eller neka en bildrequest, utan att läsa JSON-filen.
+public sealed record AlbumGate(AlbumAccess Access, bool IsPublished, string? CoverStoredName);
+
 public sealed class AlbumStore
 {
-    public const int MaxSlidesPerAlbum = 100;
+    public const int MaxSlidesPerAlbum = 150;
 
     private static readonly JsonSerializerOptions JsonOptions =
-        new(JsonSerializerDefaults.Web) { WriteIndented = true };
+        new(JsonSerializerDefaults.Web)
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
 
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+    // Varje bild i ett bildspel är en egen request mot /media. Utan cachen skulle
+    // vakten där läsa om samma JSON-fil 150 gånger när ett album öppnas.
+    private readonly ConcurrentDictionary<string, AlbumGate> _gates = new();
     private readonly string _dataRoot;
 
     public string MediaRoot { get; }
@@ -32,6 +44,14 @@ public sealed class AlbumStore
 
         await using var stream = File.OpenRead(path);
         return await JsonSerializer.DeserializeAsync<Album>(stream, JsonOptions, ct);
+    }
+
+    public async ValueTask<AlbumGate?> GetGateAsync(string slug, CancellationToken ct = default)
+    {
+        if (_gates.TryGetValue(slug, out var cached)) return cached;
+
+        var album = await GetAsync(slug, ct);
+        return album is null ? null : Remember(album);
     }
 
     public async Task<IReadOnlyList<Album>> ListAsync(bool includeDrafts, CancellationToken ct = default)
@@ -69,7 +89,7 @@ public sealed class AlbumStore
         }
     }
 
-    public async Task<Album> CreateAsync(string? title, CancellationToken ct = default)
+    public async Task<Album> CreateAsync(string? title, AlbumAccess access, CancellationToken ct = default)
     {
         var now = DateTimeOffset.UtcNow;
         var baseSlug = SlugGenerator.Create(title, now);
@@ -87,6 +107,7 @@ public sealed class AlbumStore
             Slug = slug,
             Title = string.IsNullOrWhiteSpace(title) ? slug : title.Trim(),
             CreatedUtc = now,
+            Access = access,
             // Under det lägsta befintliga värdet: nya bildspel hamnar högst upp.
             SortOrder = existing.Count == 0 ? 0 : existing.Min(a => a.SortOrder) - 1
         };
@@ -125,6 +146,7 @@ public sealed class AlbumStore
             }
 
             File.Move(temp, path, overwrite: true);
+            Remember(album);
         }
         finally
         {
@@ -136,6 +158,8 @@ public sealed class AlbumStore
     {
         if (!SlugGenerator.IsValid(slug)) return;
 
+        _gates.TryRemove(slug, out _);
+
         var json = DataPath(slug);
         if (File.Exists(json)) File.Delete(json);
 
@@ -146,6 +170,17 @@ public sealed class AlbumStore
     public string FullDirectory(string slug) => Path.Combine(MediaRoot, slug, "full");
 
     public string ThumbDirectory(string slug) => Path.Combine(MediaRoot, slug, "thumb");
+
+    private AlbumGate Remember(Album album)
+    {
+        var gate = new AlbumGate(
+            album.Access,
+            album.PublishedUtc is not null,
+            album.Slides.Count > 0 ? album.Slides[0].StoredName : null);
+
+        _gates[album.Slug] = gate;
+        return gate;
+    }
 
     private string DataPath(string slug) => Path.Combine(_dataRoot, slug + ".json");
 }

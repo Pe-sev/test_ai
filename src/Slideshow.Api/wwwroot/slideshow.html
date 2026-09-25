@@ -12,6 +12,11 @@
 <header class="bar">
   <a class="btn" href="/">&larr; All</a>
   <h1 id="title">&hellip;</h1>
+  <select id="access" hidden aria-label="Access level">
+    <option value="0">Public</option>
+    <option value="1">Extended</option>
+    <option value="2">Family</option>
+  </select>
   <button id="toggleView">Overview</button>
   <button id="play">Play</button>
   <button id="full">Full screen</button>
@@ -38,6 +43,8 @@
 <script>
 const slug = decodeURIComponent(location.pathname.replace(/^\/s\//, '').replace(/\/$/, ''));
 
+const ACCESS_NAMES = ['Public', 'Extended', 'Family'];
+
 const el = {
   title: document.getElementById('title'),
   stage: document.getElementById('stage'),
@@ -49,7 +56,8 @@ const el = {
   message: document.getElementById('message'),
   toggleView: document.getElementById('toggleView'),
   play: document.getElementById('play'),
-  full: document.getElementById('full')
+  full: document.getElementById('full'),
+  access: document.getElementById('access')
 };
 
 let slides = [];
@@ -195,6 +203,24 @@ function enableCaptionEditing() {
   });
 }
 
+function enableAccessControl(album) {
+  el.access.hidden = false;
+  el.access.value = String(album.access);
+
+  el.access.addEventListener('change', async () => {
+    const res = await App.send('PUT', `/api/slideshows/${encodeURIComponent(slug)}/access`,
+      { access: Number(el.access.value) });
+
+    if (!res.ok) {
+      el.access.value = String(album.access);
+      alert(await App.errorText(res));
+      return;
+    }
+
+    album.access = (await res.json()).access;
+  });
+}
+
 document.getElementById('prev').addEventListener('click', () => { stopPlayback(); show(index - 1); });
 document.getElementById('next').addEventListener('click', () => { stopPlayback(); show(index + 1); });
 el.toggleView.addEventListener('click', () => showGrid(el.grid.hidden));
@@ -213,7 +239,7 @@ el.full.addEventListener('click', () => setFullscreen(!document.body.classList.c
 document.getElementById('exitFull').addEventListener('click', () => setFullscreen(false));
 
 document.addEventListener('keydown', e => {
-  if (e.target.isContentEditable) return;
+  if (e.target.isContentEditable || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   if (e.key === 'ArrowRight') { stopPlayback(); show(index + 1); }
   if (e.key === 'ArrowLeft') { stopPlayback(); show(index - 1); }
   if (e.key === ' ') { e.preventDefault(); togglePlayback(); }
@@ -241,16 +267,77 @@ window.addEventListener('resize', () => {
   requestAnimationFrame(() => { revealQueued = false; revealThumb(); });
 });
 
-(async function start() {
+function showMessage(...content) {
+  el.stage.hidden = true;
+  el.strip.hidden = true;
+  el.message.hidden = false;
+  el.message.replaceChildren(...content);
+}
+
+function showLocked(info) {
+  // Bildkontrollerna styr inget så länge bildspelet är låst.
+  for (const control of [el.toggleView, el.play, el.full]) control.hidden = true;
+
+  el.title.textContent = info.title;
+  document.title = info.title;
+
+  const heading = document.createElement('p');
+  heading.textContent = `"${info.title}" is locked. Enter the ${ACCESS_NAMES[info.access]} password.`;
+
+  const label = document.createElement('label');
+  label.setAttribute('for', 'unlock');
+  label.textContent = 'Password';
+
+  const input = document.createElement('input');
+  input.type = 'password';
+  input.id = 'unlock';
+  input.autocomplete = 'current-password';
+
+  const button = document.createElement('button');
+  button.className = 'primary';
+  button.textContent = 'Unlock';
+
+  const actions = document.createElement('p');
+  actions.append(button);
+
+  const error = document.createElement('p');
+  error.className = 'error';
+
+  async function unlock() {
+    error.textContent = '';
+
+    const res = await App.send('POST', '/api/login', { password: input.value });
+
+    if (!res.ok) {
+      error.textContent = await App.errorText(res);
+      return;
+    }
+
+    input.value = '';
+    // Antiforgery-token är bunden till identiteten och måste hämtas om efter login.
+    await App.loadSession();
+    start();
+  }
+
+  button.addEventListener('click', unlock);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+
+  showMessage(heading, label, input, actions, error);
+  input.focus();
+}
+
+async function start() {
   await App.loadSession();
 
   const res = await fetch(`/api/slideshows/${encodeURIComponent(slug)}`, { cache: 'no-store' });
 
+  if (res.status === 403) {
+    showLocked(await res.json());
+    return;
+  }
+
   if (!res.ok) {
-    el.stage.hidden = true;
-    el.strip.hidden = true;
-    el.message.hidden = false;
-    el.message.textContent = 'The slideshow does not exist.';
+    showMessage('The slideshow does not exist.');
     return;
   }
 
@@ -260,17 +347,26 @@ window.addEventListener('resize', () => {
   document.title = album.title;
 
   if (slides.length === 0) {
-    el.stage.hidden = true;
-    el.strip.hidden = true;
-    el.message.hidden = false;
-    el.message.textContent = 'The slideshow is empty.';
+    showMessage('The slideshow is empty.');
     return;
   }
 
+  el.message.hidden = true;
+  el.stage.hidden = false;
+  el.strip.hidden = false;
+  for (const control of [el.toggleView, el.play, el.full]) control.hidden = false;
+
   buildThumbs();
-  if (App.isAdmin) enableCaptionEditing();
+
+  if (App.isAdmin) {
+    enableCaptionEditing();
+    enableAccessControl(album);
+  }
+
   show(indexFromHash(), false);
-})();
+}
+
+start();
 </script>
 </body>
 </html>

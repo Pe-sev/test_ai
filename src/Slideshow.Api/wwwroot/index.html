@@ -25,6 +25,8 @@
 const cards = document.getElementById('cards');
 const empty = document.getElementById('empty');
 
+const ACCESS_NAMES = ['Public', 'Extended', 'Family'];
+
 let albums = [];
 
 function actionButton(label, title, handler) {
@@ -75,7 +77,7 @@ async function remove(album) {
 
 function card(album, i) {
   const item = document.createElement('li');
-  item.className = 'card';
+  item.className = album.locked ? 'card locked' : 'card';
 
   const link = document.createElement('a');
   link.href = `/s/${album.slug}`;
@@ -96,6 +98,13 @@ function card(album, i) {
     const tag = document.createElement('span');
     tag.className = 'tag';
     tag.textContent = 'draft';
+    title.append(tag);
+  }
+
+  if (album.access > 0) {
+    const tag = document.createElement('span');
+    tag.className = album.locked ? 'tag locked' : 'tag';
+    tag.textContent = ACCESS_NAMES[album.access];
     title.append(tag);
   }
 

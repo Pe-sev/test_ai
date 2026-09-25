@@ -29,9 +29,16 @@
     <label for="title">Title</label>
     <input type="text" id="title" placeholder="Scotland 2026" autocomplete="off">
 
+    <label for="access">Visibility</label>
+    <select id="access">
+      <option value="0">Public — anyone with the link</option>
+      <option value="1">Extended — requires the Extended password</option>
+      <option value="2">Family — requires the Family password</option>
+    </select>
+
     <label for="files">Images</label>
     <input type="file" id="files" accept="image/*" multiple>
-    <p class="muted" id="hint">Up to 100 images. Sorted by file name.</p>
+    <p class="muted" id="hint">Up to 150 images. Sorted by file name.</p>
 
     <p><button class="primary" id="start" disabled>Upload</button></p>
 
@@ -46,7 +53,7 @@
 <script>
 const MAX_EDGE = 2560;
 const MAX_BYTES = 10 * 1024 * 1024;
-const MAX_FILES = 100;
+const MAX_FILES = 150;
 
 const el = {
   loginView: document.getElementById('loginView'),
@@ -57,6 +64,7 @@ const el = {
   logout: document.getElementById('logout'),
   title: document.getElementById('title'),
   files: document.getElementById('files'),
+  access: document.getElementById('access'),
   start: document.getElementById('start'),
   progress: document.getElementById('progress'),
   uploadError: document.getElementById('uploadError'),
@@ -167,7 +175,10 @@ el.start.addEventListener('click', async () => {
   el.done.hidden = true;
   el.progress.replaceChildren();
 
-  const created = await App.send('POST', '/api/slideshows', { title: el.title.value });
+  const created = await App.send('POST', '/api/slideshows', {
+    title: el.title.value,
+    access: Number(el.access.value)
+  });
 
   if (!created.ok) {
     el.uploadError.textContent = await App.errorText(created);
@@ -178,7 +189,7 @@ el.start.addEventListener('click', async () => {
   const album = await created.json();
   let failures = 0;
 
-  // En fil per request: 100 bilder i en enda request skulle spränga 10 MB-gränsen.
+  // En fil per request: 150 bilder i en enda request skulle spränga 10 MB-gränsen.
   for (const file of files) {
     const ui = addRow(file.name);
     ui.state.textContent = 'preparing';

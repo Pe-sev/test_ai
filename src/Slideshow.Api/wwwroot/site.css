@@ -378,7 +378,7 @@ body.fs .strip { display: none; }
 
 label { display: block; margin: .9rem 0 .3rem; font-size: .9rem; }
 
-input[type="text"], input[type="password"] {
+input[type="text"], input[type="password"], select {
   font: inherit;
   color: inherit;
   background: rgba(150, 155, 170, .12);
@@ -388,5 +388,21 @@ input[type="text"], input[type="password"] {
   width: 100%;
   max-width: 24rem;
 }
+
+/* Nivåväljaren i rubrikraden ska inte sträcka sig som ett formulärfält. */
+.bar select {
+  width: auto;
+  max-width: 9rem;
+  padding: .4rem .5rem;
+}
+
+.tag.locked {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+.tag.locked::before { content: "\1F512\00A0"; }
+
+.card.locked img { opacity: .45; }
 
 .error { color: #f85149; font-size: .9rem; }
