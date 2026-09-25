@@ -96,7 +96,8 @@ function highlightThumb() {
     [...container.children].forEach((img, i) => img.classList.toggle('active', i === index));
   }
 
-  el.strip.children[index]?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+  // Centrerar i bägge riktningar: tumnagelraden ligger liggande eller stående beroende på skärm.
+  el.strip.children[index]?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
 }
 
 function stopPlayback() {
