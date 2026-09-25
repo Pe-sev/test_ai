@@ -175,7 +175,23 @@ body.viewer .bar { background: #0a0a0a; }
 }
 
 .stage figcaption:empty { padding: 0; background: none; }
-.stage figcaption[contenteditable="true"] { outline: 1px dashed var(--muted); cursor: text; }
+
+.stage figcaption[contenteditable="true"] { cursor: text; }
+
+/* Utan bildtext vore rutan noll hög och ramen syntes som ett streck över bilden.
+   Platshållaren visar i stället var man klickar för att skriva. */
+.stage figcaption[contenteditable="true"]:empty { padding: 1.5rem 1rem .9rem; }
+
+.stage figcaption[contenteditable="true"]:empty::before {
+  content: "Lägg till bildtext";
+  opacity: .45;
+  font-size: .85rem;
+}
+
+.stage figcaption[contenteditable="true"]:focus {
+  outline: 1px dashed var(--muted);
+  outline-offset: -4px;
+}
 
 .nav {
   position: absolute;
