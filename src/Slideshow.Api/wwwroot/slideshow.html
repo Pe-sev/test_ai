@@ -96,8 +96,37 @@ function highlightThumb() {
     [...container.children].forEach((img, i) => img.classList.toggle('active', i === index));
   }
 
-  // Centrerar i bägge riktningar: tumnagelraden ligger liggande eller stående beroende på skärm.
-  el.strip.children[index]?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+  revealThumb();
+}
+
+// Sidvändning i stället för centrering: raden man hamnar på flyttas till kanten, så att
+// hela spalten fylls med nya bilder i stället för att rycka en bit vid varje bildbyte.
+function revealThumb() {
+  const thumb = el.strip.children[index];
+  if (!thumb || el.strip.hidden) return;
+
+  const box = el.strip.getBoundingClientRect();
+  const item = thumb.getBoundingClientRect();
+  const pad = getComputedStyle(el.strip);
+
+  // Bara en axel kan svämma över — den andra är overflow:hidden i respektive läge.
+  if (el.strip.scrollHeight > el.strip.clientHeight) {
+    if (item.bottom > box.bottom) {
+      scrollStrip('top', el.strip.scrollTop + item.top - box.top - parseFloat(pad.paddingTop));
+    } else if (item.top < box.top) {
+      scrollStrip('top', el.strip.scrollTop + item.bottom - box.bottom + parseFloat(pad.paddingBottom));
+    }
+  } else if (el.strip.scrollWidth > el.strip.clientWidth) {
+    if (item.right > box.right) {
+      scrollStrip('left', el.strip.scrollLeft + item.left - box.left - parseFloat(pad.paddingLeft));
+    } else if (item.left < box.left) {
+      scrollStrip('left', el.strip.scrollLeft + item.right - box.right + parseFloat(pad.paddingRight));
+    }
+  }
+}
+
+function scrollStrip(axis, value) {
+  el.strip.scrollTo({ [axis]: value, behavior: 'smooth' });
 }
 
 function stopPlayback() {
@@ -203,6 +232,14 @@ el.stage.addEventListener('touchend', e => {
 }, { passive: true });
 
 window.addEventListener('popstate', () => show(indexFromHash(), false));
+
+// Rotation flyttar tumnagelraden mellan vågrät och lodrät — gammal scrollposition pekar då fel.
+let revealQueued = false;
+window.addEventListener('resize', () => {
+  if (revealQueued) return;
+  revealQueued = true;
+  requestAnimationFrame(() => { revealQueued = false; revealThumb(); });
+});
 
 (async function start() {
   await App.loadSession();

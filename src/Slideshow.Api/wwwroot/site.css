@@ -286,8 +286,13 @@ body.fs .exit { display: block; }
   overflow-y: hidden;
   background: #0a0a0a;
   border-top: 1px solid var(--line);
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+
+/* WebKit och äldre iOS kan inte scrollbar-width. revealThumb() i slideshow.html
+   håller markeringen synlig, så inget blir onåbart av att listen är borta. */
+.strip::-webkit-scrollbar { display: none; }
 
 /* Liggande telefon och riktigt breda skärmar: tumnaglarna åt vänster i stället
    för under bilden. Höjden är bristvaran där, bredden finns det gott om av. */
@@ -301,13 +306,21 @@ body.fs .exit { display: block; }
   }
 
   .strip {
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(var(--strip-cols, 1), 6rem);
+    justify-content: start;
+    align-content: start;
     overflow-x: hidden;
     overflow-y: auto;
     border-top: none;
     border-right: 1px solid var(--line);
   }
 }
+
+/* Grenen ovan matchar liggande telefon på höjd, inte bredd. Default 1 kolumn gör
+   att den behåller en kolumn — bredden behövs till bilden på en liten skärm. */
+@media (min-width: 80rem) { .strip { --strip-cols: 2; } }
+@media (min-width: 100rem) { .strip { --strip-cols: 3; } }
 
 .strip img {
   flex: 0 0 auto;
