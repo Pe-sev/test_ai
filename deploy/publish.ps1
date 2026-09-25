@@ -1,11 +1,12 @@
-# Fas 0: paketerar appen som self-contained win-x86 för IIS på Simply.
-# Full deploy-automation (app_offline + filöverföring) byggs i fas 7 när vi vet
-# om servern erbjuder FTP, FTPS eller SFTP.
+# Paketerar appen som self-contained win-x86 för IIS på Simply.
+# Skarp deploy sker från Visual Studio via Properties\PublishProfiles\IISProfile.pubxml.
+# Det här skriptet finns för att kunna inspektera publiceringsutdatan lokalt.
 
 [CmdletBinding()]
 param(
     [string]$OutputPath = (Join-Path $PSScriptRoot '..\publish'),
-    # Kallstarten på Simply mättes till 164 s utan R2R, därför är den på som standard.
+    # R2R påverkar bara våra egna assemblies; runtime-paketets dll:er är redan R2R.
+    # Det löser alltså INTE kallstarten, som är I/O-bunden. Kostar ca 3 MB extra.
     [switch]$NoReadyToRun
 )
 
@@ -42,8 +43,7 @@ Write-Host "Output : $resolved"
 Write-Host "Files  : $($files.Count)"
 Write-Host "Size   : $totalMb MB"
 Write-Host ''
-Write-Host 'Innan första uppladdningen till Simply:' -ForegroundColor Yellow
-Write-Host '  1. Skapa App_Data\logs pa servern - ANCM skapar den inte sjalv och'
-Write-Host '     stdout-loggen behovs just nar appen inte startar.'
-Write-Host '  2. Kontrollera att app poolen har "Enable 32-bit Applications" = True.'
-Write-Host '  3. Ladda upp hela innehallet i publish-mappen till sitens rot.'
+Write-Host 'Skarp deploy görs från Visual Studio, inte härifrån.' -ForegroundColor Yellow
+Write-Host '  - Web Deploy lagger ut app_offline sjalvt och skyddar App_Data via ExcludeApp_Data.'
+Write-Host '  - App_Data\secrets.json pa servern maste innehalla Slideshow:AdminPasswordHash.'
+Write-Host '    Skapa hashen med: Slideshow.Api.exe hash'
