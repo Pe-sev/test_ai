@@ -291,6 +291,12 @@ api.MapPost("/slideshows/{slug}/publish", async (string slug, AlbumStore albums,
     return Results.Ok(new { album.Slug, slideCount = album.Slides.Count });
 }).RequireAuthorization();
 
+api.MapPut("/slideshows/order", async (OrderRequest body, AlbumStore albums, CancellationToken ct) =>
+{
+    await albums.SetOrderAsync(body.Slugs ?? [], ct);
+    return Results.Ok();
+}).RequireAuthorization();
+
 api.MapPut("/slideshows/{slug}/slides/{id}/caption", async (
     string slug, string id, CaptionRequest body, AlbumStore albums, CancellationToken ct) =>
 {
@@ -339,3 +345,4 @@ static void Discard(params string[] paths)
 internal record LoginRequest(string? Password);
 internal record CreateRequest(string? Title);
 internal record CaptionRequest(string? Caption);
+internal record OrderRequest(string[]? Slugs);

@@ -8,6 +8,10 @@ public sealed class Album
     public required string Title { get; set; }
     public DateTimeOffset CreatedUtc { get; init; }
 
+    // Lägre värde hamnar högre upp på indexsidan. Äldre bildspel saknar fältet och
+    // får då 0, vilket behåller datumordningen tills man flyttat något.
+    public int SortOrder { get; set; }
+
     // Null tills uppladdningen är klar. Utkast visas bara för inloggad.
     public DateTimeOffset? PublishedUtc { get; set; }
 

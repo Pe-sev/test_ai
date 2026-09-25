@@ -49,7 +49,24 @@ public sealed class AlbumStore
             albums.Add(album);
         }
 
-        return albums.OrderByDescending(a => a.CreatedUtc).ToList();
+        return albums
+            .OrderBy(a => a.SortOrder)
+            .ThenByDescending(a => a.CreatedUtc)
+            .ToList();
+    }
+
+    // Klienten skickar hela den önskade ordningen, servern numrerar om. Idempotent,
+    // och oberoende av hur ordningen ändrades i gränssnittet.
+    public async Task SetOrderAsync(IReadOnlyList<string> slugs, CancellationToken ct = default)
+    {
+        for (var position = 0; position < slugs.Count; position++)
+        {
+            var album = await GetAsync(slugs[position], ct);
+            if (album is null || album.SortOrder == position) continue;
+
+            album.SortOrder = position;
+            await SaveAsync(album, ct);
+        }
     }
 
     public async Task<Album> CreateAsync(string? title, CancellationToken ct = default)
@@ -63,11 +80,15 @@ public sealed class AlbumStore
             slug = $"{baseSlug}-{suffix}";
         }
 
+        var existing = await ListAsync(includeDrafts: true, ct);
+
         var album = new Album
         {
             Slug = slug,
             Title = string.IsNullOrWhiteSpace(title) ? slug : title.Trim(),
-            CreatedUtc = now
+            CreatedUtc = now,
+            // Under det lägsta befintliga värdet: nya bildspel hamnar högst upp.
+            SortOrder = existing.Count == 0 ? 0 : existing.Min(a => a.SortOrder) - 1
         };
 
         Directory.CreateDirectory(FullDirectory(slug));
