@@ -7,7 +7,7 @@
 <title>Bildspel</title>
 <link rel="stylesheet" href="/site.css">
 </head>
-<body>
+<body class="viewer">
 
 <header class="bar">
   <a class="btn" href="/">&larr; Alla</a>
@@ -25,7 +25,10 @@
   </figure>
   <button class="nav next" id="next" aria-label="Nästa">&rsaquo;</button>
   <div class="counter" id="counter"></div>
+  <button class="exit" id="exitFull" aria-label="Avsluta helskärm">&#10005;</button>
 </section>
+
+<nav id="strip" class="strip" aria-label="Tumnaglar"></nav>
 
 <section id="grid" class="grid" hidden></section>
 
@@ -38,6 +41,7 @@ const slug = decodeURIComponent(location.pathname.replace(/^\/s\//, '').replace(
 const el = {
   title: document.getElementById('title'),
   stage: document.getElementById('stage'),
+  strip: document.getElementById('strip'),
   grid: document.getElementById('grid'),
   photo: document.getElementById('photo'),
   caption: document.getElementById('caption'),
@@ -88,8 +92,11 @@ function preload(i) {
 }
 
 function highlightThumb() {
-  [...el.grid.querySelectorAll('img')].forEach((img, i) =>
-    img.classList.toggle('active', i === index));
+  for (const container of [el.strip, el.grid]) {
+    [...container.children].forEach((img, i) => img.classList.toggle('active', i === index));
+  }
+
+  el.strip.children[index]?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
 }
 
 function stopPlayback() {
@@ -109,20 +116,24 @@ function togglePlayback() {
 function showGrid(on) {
   el.grid.hidden = !on;
   el.stage.hidden = on;
+  el.strip.hidden = on;
   el.toggleView.textContent = on ? 'Visa bild' : 'Översikt';
-  if (on) stopPlayback();
+  if (on) stopPlayback(); else highlightThumb();
 }
 
-function buildGrid() {
-  el.grid.replaceChildren(...slides.map((slide, i) => {
-    const img = new Image();
-    img.src = slide.thumb;
-    img.alt = slide.caption || '';
-    img.loading = 'lazy';
-    img.decoding = 'async';
-    img.addEventListener('click', () => { showGrid(false); show(i); });
-    return img;
-  }));
+function thumbnail(slide, i) {
+  const img = new Image();
+  img.src = slide.thumb;
+  img.alt = slide.caption || '';
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.addEventListener('click', () => { stopPlayback(); showGrid(false); show(i); });
+  return img;
+}
+
+function buildThumbs() {
+  el.strip.replaceChildren(...slides.map(thumbnail));
+  el.grid.replaceChildren(...slides.map(thumbnail));
 }
 
 function enableCaptionEditing() {
@@ -159,22 +170,24 @@ document.getElementById('next').addEventListener('click', () => { stopPlayback()
 el.toggleView.addEventListener('click', () => showGrid(el.grid.hidden));
 el.play.addEventListener('click', togglePlayback);
 
-el.full.addEventListener('click', () => {
-  const on = !document.body.classList.contains('fs');
+function setFullscreen(on) {
   document.body.classList.toggle('fs', on);
   el.full.textContent = on ? 'Avsluta' : 'Helskärm';
 
   // Äkta helskärm där den finns. iPhone saknar den för vanliga element, därför CSS-läget ovan.
   if (on) document.documentElement.requestFullscreen?.().catch(() => {});
   else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
-});
+}
+
+el.full.addEventListener('click', () => setFullscreen(!document.body.classList.contains('fs')));
+document.getElementById('exitFull').addEventListener('click', () => setFullscreen(false));
 
 document.addEventListener('keydown', e => {
   if (e.target.isContentEditable) return;
   if (e.key === 'ArrowRight') { stopPlayback(); show(index + 1); }
   if (e.key === 'ArrowLeft') { stopPlayback(); show(index - 1); }
   if (e.key === ' ') { e.preventDefault(); togglePlayback(); }
-  if (e.key === 'Escape' && document.body.classList.contains('fs')) el.full.click();
+  if (e.key === 'Escape' && document.body.classList.contains('fs')) setFullscreen(false);
 });
 
 let touchX = null;
@@ -197,6 +210,7 @@ window.addEventListener('popstate', () => show(indexFromHash(), false));
 
   if (!res.ok) {
     el.stage.hidden = true;
+    el.strip.hidden = true;
     el.message.hidden = false;
     el.message.textContent = 'Bildspelet finns inte.';
     return;
@@ -209,12 +223,13 @@ window.addEventListener('popstate', () => show(indexFromHash(), false));
 
   if (slides.length === 0) {
     el.stage.hidden = true;
+    el.strip.hidden = true;
     el.message.hidden = false;
     el.message.textContent = 'Bildspelet är tomt.';
     return;
   }
 
-  buildGrid();
+  buildThumbs();
   if (App.isAdmin) enableCaptionEditing();
   show(indexFromHash(), false);
 })();
