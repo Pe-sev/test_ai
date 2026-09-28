@@ -48,6 +48,7 @@ const ACCESS_NAMES = ['Public', 'Extended', 'Family'];
 const el = {
   title: document.getElementById('title'),
   stage: document.getElementById('stage'),
+  figure: document.querySelector('.stage figure'),
   strip: document.getElementById('strip'),
   grid: document.getElementById('grid'),
   photo: document.getElementById('photo'),
@@ -75,6 +76,7 @@ function show(i, push = true) {
   index = (i + slides.length) % slides.length;
   const slide = slides[index];
 
+  resetZoom();
   el.photo.src = slide.full;
   el.photo.alt = slide.caption || '';
   // textContent, aldrig innerHTML: bildtexten är användarinmatad.
@@ -246,16 +248,172 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.body.classList.contains('fs')) setFullscreen(false);
 });
 
-let touchX = null;
-el.stage.addEventListener('touchstart', e => { touchX = e.changedTouches[0].clientX; }, { passive: true });
-el.stage.addEventListener('touchend', e => {
-  if (touchX === null) return;
-  const dx = e.changedTouches[0].clientX - touchX;
-  touchX = null;
-  if (Math.abs(dx) < 40) return;
+// Zoom: bilden transformeras, layouten rörs inte. Skalan är 1 = inpassad bild.
+const zoom = { scale: 1, x: 0, y: 0 };
+let gesture = null;
+let lastTap = 0;
+let lastTouchAt = 0;
+
+// object-fit: scale-down ritar bilden med minsta faktorn och aldrig uppskalad.
+// Panoreringsgränserna måste räknas på den ritade ytan, inte på elementrutan.
+// Figuren, inte .stage: den är otransformerad (rätt mått även inzoomat) och saknar ramen nedtill.
+function fitted() {
+  const box = el.figure.getBoundingClientRect();
+  const { naturalWidth: nw, naturalHeight: nh } = el.photo;
+  const fit = nw && nh ? Math.min(box.width / nw, box.height / nh, 1) : 1;
+  return { box, width: nw * fit, height: nh * fit, fit };
+}
+
+// Tak vid 1:1-pixlar — mer än så blir bara grynigt — men alltid minst 2x.
+function maxScale() {
+  return Math.min(5, Math.max(2, 1 / fitted().fit));
+}
+
+function applyZoom(smooth = false) {
+  const { box, width, height } = fitted();
+  const maxX = Math.max(0, (width * zoom.scale - box.width) / 2);
+  const maxY = Math.max(0, (height * zoom.scale - box.height) / 2);
+
+  zoom.x = Math.min(maxX, Math.max(-maxX, zoom.x));
+  zoom.y = Math.min(maxY, Math.max(-maxY, zoom.y));
+
+  el.photo.style.transition = smooth ? 'transform .2s' : '';
+  el.photo.style.transform = `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`;
+  el.stage.classList.toggle('zoomed', zoom.scale > 1);
+}
+
+function resetZoom(smooth = false) {
+  zoom.scale = 1;
+  zoom.x = 0;
+  zoom.y = 0;
+  applyZoom(smooth);
+}
+
+// Punkten under fingret ska ligga stilla när skalan ändras.
+function zoomTo(scale, clientX, clientY, smooth = true) {
+  const { box } = fitted();
+  const px = clientX - (box.left + box.width / 2);
+  const py = clientY - (box.top + box.height / 2);
+  const next = Math.min(maxScale(), Math.max(1, scale));
+
+  zoom.x = px - (px - zoom.x) * next / zoom.scale;
+  zoom.y = py - (py - zoom.y) * next / zoom.scale;
+  zoom.scale = next;
+  applyZoom(smooth);
+}
+
+function toggleZoom(clientX, clientY) {
   stopPlayback();
-  show(dx < 0 ? index + 1 : index - 1);
-}, { passive: true });
+  if (zoom.scale > 1) resetZoom(true); else zoomTo(2.5, clientX, clientY);
+}
+
+const spread = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+const midpoint = t => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+
+el.stage.addEventListener('touchstart', e => {
+  // Knappar och bildtextredigering ska bete sig som vanligt.
+  if (e.target.closest('button') || e.target.isContentEditable) { gesture = null; return; }
+
+  if (e.touches.length === 2) {
+    stopPlayback();
+    e.preventDefault();
+    gesture = { mode: 'pinch', spread: spread(e.touches), mid: midpoint(e.touches), ...zoom };
+  } else if (e.touches.length === 1) {
+    const t = e.touches[0];
+    gesture = { mode: zoom.scale > 1 ? 'pan' : 'swipe', startX: t.clientX, startY: t.clientY, ...zoom };
+  }
+}, { passive: false });
+
+el.stage.addEventListener('touchmove', e => {
+  if (!gesture) return;
+
+  if (gesture.mode === 'pinch' && e.touches.length === 2) {
+    e.preventDefault();
+    const mid = midpoint(e.touches);
+    const next = Math.min(maxScale(), Math.max(1, gesture.scale * spread(e.touches) / gesture.spread));
+    const { box } = fitted();
+    const px = gesture.mid.x - (box.left + box.width / 2);
+    const py = gesture.mid.y - (box.top + box.height / 2);
+
+    // Skala kring startmittpunkten och följ med där den flyttat sig.
+    zoom.x = px - (px - gesture.x) * next / gesture.scale + (mid.x - gesture.mid.x);
+    zoom.y = py - (py - gesture.y) * next / gesture.scale + (mid.y - gesture.mid.y);
+    zoom.scale = next;
+    applyZoom();
+  } else if (gesture.mode === 'pan' && e.touches.length === 1) {
+    e.preventDefault();
+    zoom.x = gesture.x + (e.touches[0].clientX - gesture.startX);
+    zoom.y = gesture.y + (e.touches[0].clientY - gesture.startY);
+    applyZoom();
+  }
+}, { passive: false });
+
+el.stage.addEventListener('touchend', e => {
+  const g = gesture;
+  lastTouchAt = Date.now();
+  if (e.touches.length === 0) gesture = null;
+  if (!g || g.mode === 'pinch') { lastTap = 0; return; }
+
+  const touch = e.changedTouches[0];
+  const dx = touch.clientX - g.startX;
+  const dy = touch.clientY - g.startY;
+
+  if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+    lastTap = 0;
+    // Svep byter bild bara i ozoomat läge — annars panorerar man i bilden.
+    if (g.mode === 'swipe' && Math.abs(dx) >= 40 && Math.abs(dx) > Math.abs(dy)) {
+      stopPlayback();
+      show(dx < 0 ? index + 1 : index - 1);
+    }
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastTap < 300) {
+    lastTap = 0;
+    toggleZoom(touch.clientX, touch.clientY);
+  } else {
+    lastTap = now;
+  }
+}, { passive: false });
+
+el.stage.addEventListener('touchcancel', () => { gesture = null; lastTap = 0; });
+
+const zoomable = target => !target.closest('button') && !target.isContentEditable;
+
+// Webbläsaren syntetiserar klick från tryck — utan spärren skulle dubbeltryck växla två gånger.
+el.stage.addEventListener('dblclick', e => {
+  if (!zoomable(e.target) || Date.now() - lastTouchAt < 700) return;
+  toggleZoom(e.clientX, e.clientY);
+});
+
+el.stage.addEventListener('wheel', e => {
+  if (!zoomable(e.target)) return;
+  e.preventDefault();
+  stopPlayback();
+  // deltaMode 1 = rader (Firefox). Exponentiellt steg håller känslan lika nära som långt in.
+  const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  zoomTo(zoom.scale * Math.exp(-delta * 0.002), e.clientX, e.clientY, false);
+}, { passive: false });
+
+let drag = null;
+
+el.stage.addEventListener('mousedown', e => {
+  if (e.button !== 0 || zoom.scale === 1 || !zoomable(e.target)) return;
+  e.preventDefault();
+  drag = { startX: e.clientX, startY: e.clientY, ...zoom };
+  el.stage.classList.add('dragging');
+});
+
+// På window, inte på ytan: musen släpps ofta utanför bilden när man dragit ut i kanten.
+window.addEventListener('mousemove', e => {
+  if (!drag) return;
+  zoom.x = drag.x + (e.clientX - drag.startX);
+  zoom.y = drag.y + (e.clientY - drag.startY);
+  applyZoom();
+});
+
+window.addEventListener('mouseup', () => { drag = null; el.stage.classList.remove('dragging'); });
 
 window.addEventListener('popstate', () => show(indexFromHash(), false));
 
@@ -264,7 +422,7 @@ let revealQueued = false;
 window.addEventListener('resize', () => {
   if (revealQueued) return;
   revealQueued = true;
-  requestAnimationFrame(() => { revealQueued = false; revealThumb(); });
+  requestAnimationFrame(() => { revealQueued = false; revealThumb(); applyZoom(); });
 });
 
 function showMessage(...content) {

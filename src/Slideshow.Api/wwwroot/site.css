@@ -169,12 +169,14 @@ body.viewer .bar { grid-area: bar; background: #0a0a0a; }
 
 /* minmax(0, 1fr) ovan: utan det växer raden till bildens naturliga höjd och
    "height: 100%" nedan blir cirkulärt, vilket klipper stående bilder. */
+/* touch-action: none — nypzoom, panorering och svep hanteras helt i JS. Med pan-y
+   skickade webbläsaren lodräta drag vidare och avbröt gesten mitt i. */
 .stage {
   min-height: 0;
   position: relative;
   overflow: hidden;
   background: #000;
-  touch-action: pan-y;
+  touch-action: none;
 }
 
 .stage figure {
@@ -182,6 +184,14 @@ body.viewer .bar { grid-area: bar; background: #0a0a0a; }
   inset: 0;
   margin: 0;
 }
+
+/* Desktop: smal svart ram nedtill så bilden inte ligger dikt an mot tumnagelraden. */
+@media (pointer: fine) {
+  .stage figure { bottom: 1rem; }
+}
+
+.stage.zoomed { cursor: grab; }
+.stage.zoomed.dragging { cursor: grabbing; }
 
 /* Rutan är alltid hela figuren och bilden passas in med object-fit. Proportionerna
    räknas då av målningen, inte av layouten — max-width/max-height mot en absolut
@@ -195,6 +205,7 @@ body.viewer .bar { grid-area: bar; background: #0a0a0a; }
   object-fit: scale-down;
   object-position: center;
   display: block;
+  transform-origin: center;
 }
 
 .stage figcaption {
