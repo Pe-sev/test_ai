@@ -10,7 +10,7 @@
 <body class="viewer">
 
 <header class="bar">
-  <a class="btn" href="/">&larr; All</a>
+  <a class="btn" id="back" href="/">&larr; All</a>
   <h1 id="title">&hellip;</h1>
   <select id="access" hidden aria-label="Access level">
     <option value="0">Public</option>
@@ -42,6 +42,9 @@
 <script src="/app.js"></script>
 <script>
 const slug = decodeURIComponent(location.pathname.replace(/^\/s\//, '').replace(/\/$/, ''));
+
+// Tillbaka till startsidan med det här bildspelets kort i fokus.
+document.getElementById('back').href = `/#${slug}`;
 
 const ACCESS_NAMES = ['Public', 'Extended', 'Family'];
 

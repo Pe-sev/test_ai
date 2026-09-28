@@ -90,10 +90,14 @@ async function remove(album) {
 
 function card(album, i) {
   const item = document.createElement('li');
-  item.className = 'card';
+  item.className = album.locked ? 'card locked' : 'card';
+  // Slugen är [a-z0-9-] och därmed säker både som id och i hashen.
+  item.id = `show-${album.slug}`;
 
   const link = document.createElement('a');
   link.href = `/s/${album.slug}`;
+  // Hashen läggs på startsidans historikpost, så även Bakåt landar på rätt kort.
+  link.addEventListener('click', () => history.replaceState(null, '', `#${album.slug}`));
 
   const img = new Image();
   img.src = album.cover || '';
@@ -116,7 +120,7 @@ function card(album, i) {
 
   if (album.access > 0) {
     const tag = document.createElement('span');
-    tag.className = 'tag';
+    tag.className = album.locked ? 'tag locked' : 'tag';
     tag.textContent = ACCESS_NAMES[album.access];
     title.append(tag);
   }
@@ -149,6 +153,19 @@ function card(album, i) {
 function render() {
   cards.replaceChildren(...albums.map(card));
   empty.hidden = albums.length > 0;
+}
+
+// Korten finns inte när sidan parsas, så webbläsaren hoppar aldrig till hashen själv.
+// Inget smooth: på en lång mobillista skulle den animera hela vägen från toppen.
+function focusFromHash() {
+  if (location.hash.length < 2) return;
+
+  const item = document.getElementById(`show-${location.hash.slice(1)}`);
+  if (!item) return;
+
+  item.scrollIntoView({ block: 'center' });
+  item.classList.add('returned');
+  item.querySelector('a').focus({ preventScroll: true });
 }
 
 // Bara admin får ladda upp. Servern nekar ändå, men länken ska inte locka.
@@ -201,6 +218,7 @@ password.addEventListener('keydown', e => { if (e.key === 'Enter') signIn(); });
   await App.loadSession();
   renderSession();
   await loadAlbums();
+  focusFromHash();
 })();
 </script>
 </body>

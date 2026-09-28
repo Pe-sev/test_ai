@@ -407,4 +407,17 @@ input[type="text"], input[type="password"], select {
   padding: .4rem .5rem;
 }
 
+/* Sätts när man kommer tillbaka via /#slug. Inte :target — id:t är prefixat för att
+   inte krocka med sidans egna id:n, och då matchar aldrig hashen. */
+.card.returned { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.tag.locked {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+.tag.locked::before { content: "\1F512\00A0"; }
+
+.card.locked img { opacity: .45; }
+
 .error { color: #f85149; font-size: .9rem; }

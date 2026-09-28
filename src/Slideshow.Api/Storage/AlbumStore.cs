@@ -6,7 +6,7 @@ using Slideshow.Api.Models;
 namespace Slideshow.Api.Storage;
 
 // Det som behövs för att släppa igenom eller neka en bildrequest, utan att läsa JSON-filen.
-public sealed record AlbumGate(AlbumAccess Access, bool IsPublished);
+public sealed record AlbumGate(AlbumAccess Access, bool IsPublished, string? CoverStoredName);
 
 public sealed class AlbumStore
 {
@@ -173,7 +173,10 @@ public sealed class AlbumStore
 
     private AlbumGate Remember(Album album)
     {
-        var gate = new AlbumGate(album.Access, album.PublishedUtc is not null);
+        var gate = new AlbumGate(
+            album.Access,
+            album.PublishedUtc is not null,
+            album.Slides.Count > 0 ? album.Slides[0].StoredName : null);
 
         _gates[album.Slug] = gate;
         return gate;
