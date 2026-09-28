@@ -245,15 +245,14 @@ api.MapGet("/slideshows", async (HttpContext ctx, AlbumStore albums, Cancellatio
     var list = await albums.ListAsync(IsAdmin(ctx), ct);
     var level = LevelOf(ctx);
 
-    // Titel och omslag visas även för låsta bildspel. Själva bilderna gör det inte.
-    return Results.Ok(list.Select(a => new
+    // Bildspel över besökarens nivå listas inte alls: varken titel, antal eller omslag.
+    return Results.Ok(list.Where(a => level >= (int)a.Access).Select(a => new
     {
         a.Slug,
         a.Title,
         a.CreatedUtc,
         isDraft = a.PublishedUtc is null,
         access = (int)a.Access,
-        locked = level < (int)a.Access,
         slideCount = a.Slides.Count,
         cover = a.Slides.Count > 0 ? $"/media/{a.Slug}/thumb/{a.Slides[0].StoredName}" : null
     }));
@@ -430,11 +429,7 @@ static async Task<bool> MediaAllowed(PathString rest, HttpContext ctx, AlbumStor
 
     ctx.Items[MediaAccessItem] = gate.Access;
 
-    if (LevelOf(ctx) >= (int)gate.Access) return true;
-
-    // Omslaget ska synas i listan även för låsta bildspel. Bara den ena tumnageln —
-    // hela thumb-katalogen skulle läcka innehållet.
-    return parts[1] == "thumb" && parts[2] == gate.CoverStoredName;
+    return LevelOf(ctx) >= (int)gate.Access;
 }
 
 static void Discard(params string[] paths)

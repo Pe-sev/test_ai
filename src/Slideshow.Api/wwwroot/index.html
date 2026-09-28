@@ -12,10 +12,18 @@
 <header class="bar">
   <h1>Slideshows</h1>
   <span class="spacer"></span>
-  <a class="btn" href="/upload.html">New slideshow</a>
+  <a class="btn" id="newShow" href="/upload.html" hidden>New slideshow</a>
+  <button id="auth">Sign in</button>
 </header>
 
 <main>
+  <section id="loginView" hidden>
+    <label for="password">Password</label>
+    <input type="password" id="password" autocomplete="current-password">
+    <p><button class="primary" id="login">Sign in</button></p>
+    <p class="error" id="loginError"></p>
+  </section>
+
   <ul class="cards" id="cards"></ul>
   <p id="empty" class="muted" hidden>No slideshows yet.</p>
 </main>
@@ -24,6 +32,11 @@
 <script>
 const cards = document.getElementById('cards');
 const empty = document.getElementById('empty');
+const auth = document.getElementById('auth');
+const newShow = document.getElementById('newShow');
+const loginView = document.getElementById('loginView');
+const password = document.getElementById('password');
+const loginError = document.getElementById('loginError');
 
 const ACCESS_NAMES = ['Public', 'Extended', 'Family'];
 
@@ -77,7 +90,7 @@ async function remove(album) {
 
 function card(album, i) {
   const item = document.createElement('li');
-  item.className = album.locked ? 'card locked' : 'card';
+  item.className = 'card';
 
   const link = document.createElement('a');
   link.href = `/s/${album.slug}`;
@@ -103,7 +116,7 @@ function card(album, i) {
 
   if (album.access > 0) {
     const tag = document.createElement('span');
-    tag.className = album.locked ? 'tag locked' : 'tag';
+    tag.className = 'tag';
     tag.textContent = ACCESS_NAMES[album.access];
     title.append(tag);
   }
@@ -138,12 +151,56 @@ function render() {
   empty.hidden = albums.length > 0;
 }
 
-(async function load() {
-  await App.loadSession();
+// Bara admin får ladda upp. Servern nekar ändå, men länken ska inte locka.
+function renderSession() {
+  newShow.hidden = !App.isAdmin;
+  auth.textContent = App.level > 0 ? 'Sign out' : 'Sign in';
+  if (App.level > 0) loginView.hidden = true;
+}
 
+async function loadAlbums() {
   const res = await fetch('/api/slideshows', { cache: 'no-store' });
   albums = await res.json();
   render();
+}
+
+async function signIn() {
+  loginError.textContent = '';
+
+  const res = await App.send('POST', '/api/login', { password: password.value });
+
+  if (!res.ok) {
+    loginError.textContent = await App.errorText(res);
+    return;
+  }
+
+  password.value = '';
+  // Antiforgery-token är bunden till identiteten och måste hämtas om efter login.
+  await App.loadSession();
+  renderSession();
+  await loadAlbums();
+}
+
+auth.addEventListener('click', async () => {
+  if (App.level > 0) {
+    await App.send('POST', '/api/logout');
+    await App.loadSession();
+    renderSession();
+    await loadAlbums();
+    return;
+  }
+
+  loginView.hidden = !loginView.hidden;
+  if (!loginView.hidden) password.focus();
+});
+
+document.getElementById('login').addEventListener('click', signIn);
+password.addEventListener('keydown', e => { if (e.key === 'Enter') signIn(); });
+
+(async function load() {
+  await App.loadSession();
+  renderSession();
+  await loadAlbums();
 })();
 </script>
 </body>
